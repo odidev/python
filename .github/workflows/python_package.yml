@@ -77,3 +77,55 @@ jobs:
         python -m pip install twine
         twine upload dist/*
 
+  Build-aarch64:
+    name: "Build and test ${{ matrix.pyver }} aarch64 wheel"
+    strategy:
+      matrix:
+        pyver: [cp36-cp36m, cp37-cp37m, cp38-cp38, cp39-cp39]
+      fail-fast: false
+    runs-on: ubuntu-latest
+    env:
+      py: /opt/python/${{ matrix.pyver }}/bin/python
+      img: quay.io/pypa/manylinux2014_aarch64
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Customize git
+      run: |
+        git submodule update --init --recursive
+        git fetch --prune --unshallow      
+    - name: Set up QEMU
+      id: qemu
+      uses: docker/setup-qemu-action@v1
+    - name: Build Wheel
+      run: |
+            docker run --rm -v ${{ github.workspace }}:/ws:rw --workdir=/ws \
+            ${{ env.img }} \
+            bash -exc '${{ env.py }} -m venv .env && \
+            source .env/bin/activate && \
+            yum install -y epel-release && \
+            yum-config-manager --enable epel && \
+            yum install -y eigen3-devel && \
+            python -m pip install --upgrade pip && \
+            pip install setuptools wheel setuptools-git && \
+            python setup.py bdist_wheel && \
+            rm -rf build && \
+            python tests/print_platform_info.py && \
+            python -m pip install dist/*.whl && \
+            cd tests && \
+            python -m pip install scipy quadprog && \
+            python DQ_test.py && \
+            python DQ_Kinematics_test.py && \
+            python cpp_issues.py && \
+            python python_issues.py && \
+            cd .. && \
+            auditwheel repair ./dist/* -w ./dist && \
+            deactivate'
+    - name: Publish to PyPi
+      env:
+        TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+        TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+      if: github.ref == 'refs/heads/master'
+      run: |
+        python -m pip install twine
+        twine upload dist/*
